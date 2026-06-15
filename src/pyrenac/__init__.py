@@ -8,8 +8,10 @@ from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 import logging
 import threading
+import time
 from typing import Any, TypeVar
 
 import aiohttp
@@ -47,13 +49,14 @@ def run_coroutine_sync(coroutine: Coroutine[Any, Any, T], timeout: float = 30) -
         return asyncio.run_coroutine_threadsafe(coroutine, loop).result()
 
 
-API_ROOT = "https://sec.bg.renacpower.cn:8084/api/"
-RENAC_API_ROOT = "https://sec.bg.renacpower.cn:8084/renac/"
-BG_API_ROOT = "https://sec.bg.renacpower.cn:8084/bg/"
+API_ROOT = "https://europe.renacpower.com:8084/api/"
+RENAC_API_ROOT = "https://europe.renacpower.com:8084/renac/"
+BG_API_ROOT = "https://europe.renacpower.com:8084/bg/"
 
 _LOGGER = logging.getLogger(__name__)
 
 InverterType = Enum("InverterType", ["ONGRID", "HYBRID"])
+
 
 class Inverter:
     """The base class that represent the Inverter."""
@@ -101,7 +104,6 @@ class RenacInverterData:
     version: str
     fwversion: str
     registration_time: str
-    equipment_type: str
     equipment_serial: str
 
 
@@ -161,26 +163,48 @@ class PyRenac:
             self.emailSn = loginResponse.get("email")
             self.token = loginResponse.get("Token")
 
-    def fetch_field_value(self, data, field):
+    def fetch_field_value(self, data, field, context=None):
         """Fetch the given field from the data."""
         _LOGGER.debug("Fetch field value %s", field)
+        if context is None:
+            context = "im"
         if data is not None:
-            return data.get(field)
+            if data.get(context) is not None:
+                return data[context].get(field)
+            else:
+                return data.get(field)
         return None
 
-    async def async_fetch(self, field):
+    async def async_fetch(self, field, context=None):
         """Fetch the data identified by the field."""
+        if context is None:
+            context = "im"
         data = await self.async_fetch_all()
         if data is not None:
-            return data.get(field)
+            return data[context].get(field)
         return None
 
-    def fetch(self, field):
+    def fetch(self, field, context=None):
         """Fetch the data identified by the field."""
+        if context is None:
+            context = "im"
         data = self.fetch_all()
         if data is not None:
-            return data.get(field)
+            return data[context].get(field)
         return None
+
+    def build_header(self):
+        """Build the header for the requests."""
+        token = self.token
+        timestamp = str(int(time.time()))
+
+        # Concatenate the token, timestamp, and hardcoded value
+        data_to_sign = f"{token}{timestamp}9P@3kF7sD2&zX5cV8bNm1qR4tY6uI0o"
+
+        # Calculate the MD5 digest
+        sign = hashlib.md5(data_to_sign.encode()).hexdigest()
+
+        return {"Token": token, "Timestamp": timestamp, "Sign": sign}
 
     async def async_ensure_login(self):
         """Ensure that we have a valid Token to be used."""
@@ -194,7 +218,7 @@ class PyRenac:
             _LOGGER.info("Token is null, new fresh login sequence required")
             self.login()
 
-    async def async_fetch_all(self):
+    async def async_fetch_all(self, context=None):
         """Fetch all the data.
 
         A login will be done if needed to retrieve the right token.
@@ -202,13 +226,19 @@ class PyRenac:
         _LOGGER.debug("Fetching all data")
         data = None
         await self.async_ensure_login()
-        req_json = {"sn": self.equipSn, "email": self.emailSn}
-        headers = {"Token": self.token}
+        current_date = time.strftime("%Y-%m-%d")
+        req_json = {
+            "equ_sn": self.equipSn,
+            "offset": 0,
+            "rows": 10,
+            "time": current_date,
+        }
+        headers = self.build_header()
         timeout = aiohttp.ClientTimeout(total=30)
         async with (
             aiohttp.ClientSession() as session,
             session.post(
-                API_ROOT + "equipDetail/",
+                BG_API_ROOT + "inv/detail/",
                 json=req_json,
                 headers=headers,
                 timeout=timeout,
@@ -216,39 +246,64 @@ class PyRenac:
         ):
             if resp.status == 200:
                 response = await resp.json(content_type=None)
-                if "results" in response:
-                    data = response.get("results")
+                _LOGGER.debug("Got %s", response)
+                if "data" in response and response["data"] is not None:
+                    data = {}
+                    if "inv" in response.get("data"):
+                        data["inv"] = response.get("data").get("inv")
+                    if "im" in response.get("data"):
+                        data["im"] = response.get("data").get("im")
+                    if "invInfo" in response.get("data"):
+                        data["invInfo"] = response.get("data").get("invInfo")
                 else:
                     _LOGGER.info("Null results. assuming a new Token is required")
                     self.token = None
             else:
+                _LOGGER.error("Failed to read sensor %s", resp.status)
                 raise ("Failed to read sensor " + str(resp.status))
-
+        if context is not None:
+            return data.get(context)
         return data
 
-    def fetch_all(self):
+    def fetch_all(self, context=None):
         """Fetch all the data.
 
         A login will be done if needed to retrieve the right token.
         """
-        _LOGGER.debug("Fetching all data")
+        _LOGGER.warning("Fetching all data")
         data = None
         self.ensure_login()
-        req_json = {"sn": self.equipSn, "email": self.emailSn}
-        headers = {"Token": self.token}
+        current_date = time.strftime("%Y-%m-%d")
+        req_json = {
+            "equ_sn": self.equipSn,
+            "offset": 0,
+            "rows": 10,
+            "time": current_date,
+        }
+        headers = self.build_header()
         resp = requests.post(
-            API_ROOT + "equipDetail/", headers=headers, json=req_json, timeout=60
+            BG_API_ROOT + "inv/detail/", headers=headers, json=req_json, timeout=60
         )
         if resp.status == 200:
             response = resp.json()
-            if "results" in response:
-                data = response.get("results")
+            _LOGGER.warning("Got %s", response)
+            if "data" in response:
+                data = {}
+                if "inv" in response.get("data"):
+                    data["inv"] = response.get("data").get("inv")
+                if "im" in response.get("data"):
+                    data["im"] = response.get("data").get("im")
+                if "invInfo" in response.get("data"):
+                    data["invInfo"] = response.get("data").get("invInfo")
             else:
                 _LOGGER.info("Null results. assuming a new Token is required")
                 self.token = None
         else:
+            _LOGGER.error("Failed to read sensor %s", resp.status)
             raise ("Failed to read sensor " + str(resp.status))
 
+        if context is not None:
+            return data.get(context)
         return data
 
     def getType(self, data) -> InverterType:
@@ -284,7 +339,7 @@ class PyRenac:
         if self.station_id is None:
             await self.async_ensure_login()
             req_json = self._station_list_request()
-            headers = {"Token": self.token}
+            headers = self.build_header()
             timeout = aiohttp.ClientTimeout(total=30)
             async with (
                 aiohttp.ClientSession() as session,
@@ -305,7 +360,7 @@ class PyRenac:
                         self.token = None
                 else:
                     raise ("Failed to read sensor " + str(resp.status))
-            _LOGGER.info("Got station_id %s", self.station_id)
+            _LOGGER.warning("Got station_id %s", self.station_id)
         return self.station_id
 
     def get_station_id(self):
@@ -313,7 +368,7 @@ class PyRenac:
         if self.station_id is None:
             self.ensure_login()
             req_json = self._station_list_request()
-            headers = {"Token": self.token}
+            headers = self.build_header()
             resp = requests.post(
                 API_ROOT + "station/list", headers=headers, json=req_json, timeout=60
             )
@@ -326,7 +381,7 @@ class PyRenac:
                     self.token = None
             else:
                 raise ("Failed to read sensor " + str(resp.status))
-            _LOGGER.info("Got station_id %s", self.station_id)
+            _LOGGER.warning("Got station_id %s", self.station_id)
         return self.station_id
 
     async def async_get_historical_data(self, date):
@@ -335,7 +390,7 @@ class PyRenac:
         await self.ensure_login()
         station_id = await self.get_station_id()
         req_json = {"station_id": station_id, "time": str(date), "time_type": 1}
-        headers = {"Token": self.token}
+        headers = self.build_header()
         timeout = aiohttp.ClientTimeout(total=30)
         async with (
             aiohttp.ClientSession() as session,
@@ -359,38 +414,47 @@ class PyRenac:
 
     def get_inverter_data(self) -> RenacInverterData:
         """Get details about the inverter itslef."""
-        inverterData = None
-        self.ensure_login()
-        station_id = self.get_station_id()
+        if self.inverterData is None:
+            self.inverterData = RenacInverterData(
+                version=self.async_fetch("version", "inv"),
+                fwversion=self.async_fetch("hmi_version", "inv"),
+                name=self.async_fetch("equ_POSITION", "invInfo"),
+                registration_time=self.async_fetch("reg_TIME", "inv"),
+                equipment_serial=self.async_fetch("inv_SN", "inv"),
+            )
+        return self.inverterData
+
+    async def async_get_serial_numbers(self) -> list[str]:
+        """Get the serial number of the inverter."""
+        await self.async_ensure_login()
+        station_id = await self.async_get_station_id()
         req_json = {
-            "station_id": station_id,
             "user_id": self.emailSn,
+            "station_id": station_id,
             "status": 0,
             "offset": 0,
-            "rows": 1,
+            "rows": 10,
+            "equ_sn": "",
         }
         headers = {"Token": self.token}
-        resp = requests.post(
-            API_ROOT + "station/list", headers=headers, json=req_json, timeout=60
-        )
-        if resp.status == 200:
-            response = resp.json(content_type=None)
-            if "data" in response:
-                data = response["data"]["list"][0]
-                inverterData = RenacInverterData(
-                    version=data[0].get("VERSION"),
-                    fwversion=data[0].get("FIRMWARE_VER"),
-                    name=data[0].get("STATION_NAME"),
-                    equipment_type=data[0].get("EQU_TYPE"),
-                    registration_time=data[0].get("REG_TIME"),
-                    equipment_serial=data[0].get("INV_SN"),
-                )
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                BG_API_ROOT + "equList",
+                json=req_json,
+                headers=headers,
+                timeout=timeout,
+            ) as resp,
+        ):
+            if resp.status == 200:
+                response = await resp.json(content_type=None)
+                if "data" in response:
+                    _LOGGER.warning(response)
+                    data = response["data"]["list"]
+                    return [item["INV_SN"] for item in data]
             else:
-                _LOGGER.info("Null results. assuming a new Token is required")
-                self.token = None
-        else:
-            raise ("Failed to read sensor " + str(resp.status))
-        return inverterData
+                raise ("Failed to read sensor " + str(resp.status))
 
     async def async_get_inverter_data(self) -> RenacInverterData:
         """Get details about the inverter itslef."""
@@ -404,7 +468,7 @@ class PyRenac:
                 "offset": 0,
                 "rows": 1,
             }
-            headers = {"Token": self.token}
+            headers = self.build_header()
             timeout = aiohttp.ClientTimeout(total=30)
             async with (
                 aiohttp.ClientSession() as session,
@@ -422,10 +486,9 @@ class PyRenac:
                         data = response["data"]["list"]
                         if len(data) > 0:
                             self.inverterData = RenacInverterData(
-                                version=data[0].get("VERSION"),
+                                version=data[0].get("FIRMWARE_VER"),
                                 fwversion=data[0].get("FIRMWARE_VER"),
-                                name=data[0].get("STATION_NAME"),
-                                equipment_type=data[0].get("EQU_TYPE"),
+                                name=data[0].get("EQU_POSITION"),
                                 registration_time=data[0].get("REG_TIME"),
                                 equipment_serial=data[0].get("INV_SN"),
                             )

@@ -270,7 +270,7 @@ class PyRenac:
 
         A login will be done if needed to retrieve the right token.
         """
-        _LOGGER.warning("Fetching all data")
+        _LOGGER.debug("Fetching all data")
         data = None
         self.ensure_login()
         current_date = time.strftime("%Y-%m-%d")
@@ -286,7 +286,7 @@ class PyRenac:
         )
         if resp.status == 200:
             response = resp.json()
-            _LOGGER.warning("Got %s", response)
+            _LOGGER.debug("Got %s", response)
             if "data" in response:
                 data = {}
                 if "inv" in response.get("data"):
@@ -353,14 +353,14 @@ class PyRenac:
                 if resp.status == 200:
                     response = await resp.json(content_type=None)
                     if "data" in response:
-                        _LOGGER.warning(response)
+                        _LOGGER.debug(response)
                         self.station_id = response["data"]["list"][0]["station_id"]
                     else:
                         _LOGGER.info("Null results. assuming a new Token is required")
                         self.token = None
                 else:
                     raise ("Failed to read sensor " + str(resp.status))
-            _LOGGER.warning("Got station_id %s", self.station_id)
+            _LOGGER.info("Got station_id %s", self.station_id)
         return self.station_id
 
     def get_station_id(self):
@@ -381,7 +381,7 @@ class PyRenac:
                     self.token = None
             else:
                 raise ("Failed to read sensor " + str(resp.status))
-            _LOGGER.warning("Got station_id %s", self.station_id)
+            _LOGGER.info("Got station_id %s", self.station_id)
         return self.station_id
 
     async def async_get_historical_data(self, date):
@@ -450,7 +450,7 @@ class PyRenac:
             if resp.status == 200:
                 response = await resp.json(content_type=None)
                 if "data" in response:
-                    _LOGGER.warning(response)
+                    _LOGGER.debug(response)
                     data = response["data"]["list"]
                     return [item["INV_SN"] for item in data]
             else:
@@ -482,7 +482,7 @@ class PyRenac:
                 if resp.status == 200:
                     response = await resp.json(content_type=None)
                     if "data" in response:
-                        _LOGGER.warning(response)
+                        _LOGGER.debug(response)
                         data = response["data"]["list"]
                         if len(data) > 0:
                             self.inverterData = RenacInverterData(

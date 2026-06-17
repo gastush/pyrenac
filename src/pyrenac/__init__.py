@@ -105,6 +105,7 @@ class RenacInverterData:
     fwversion: str
     registration_time: str
     equipment_serial: str
+    model: str
 
 
 class PyRenac:
@@ -270,7 +271,7 @@ class PyRenac:
 
         A login will be done if needed to retrieve the right token.
         """
-        _LOGGER.debug("Fetching all data")
+        _LOGGER.warning("Fetching all data")
         data = None
         self.ensure_login()
         current_date = time.strftime("%Y-%m-%d")
@@ -286,7 +287,7 @@ class PyRenac:
         )
         if resp.status == 200:
             response = resp.json()
-            _LOGGER.debug("Got %s", response)
+            _LOGGER.warning("Got %s", response)
             if "data" in response:
                 data = {}
                 if "inv" in response.get("data"):
@@ -353,14 +354,14 @@ class PyRenac:
                 if resp.status == 200:
                     response = await resp.json(content_type=None)
                     if "data" in response:
-                        _LOGGER.debug(response)
+                        _LOGGER.warning(response)
                         self.station_id = response["data"]["list"][0]["station_id"]
                     else:
                         _LOGGER.info("Null results. assuming a new Token is required")
                         self.token = None
                 else:
                     raise ("Failed to read sensor " + str(resp.status))
-            _LOGGER.info("Got station_id %s", self.station_id)
+            _LOGGER.warning("Got station_id %s", self.station_id)
         return self.station_id
 
     def get_station_id(self):
@@ -381,7 +382,7 @@ class PyRenac:
                     self.token = None
             else:
                 raise ("Failed to read sensor " + str(resp.status))
-            _LOGGER.info("Got station_id %s", self.station_id)
+            _LOGGER.warning("Got station_id %s", self.station_id)
         return self.station_id
 
     async def async_get_historical_data(self, date):
@@ -421,6 +422,7 @@ class PyRenac:
                 name=self.async_fetch("equ_POSITION", "invInfo"),
                 registration_time=self.async_fetch("reg_TIME", "inv"),
                 equipment_serial=self.async_fetch("inv_SN", "inv"),
+                model=self.async_fetch("equ_MODEL_NAME", "inv"),
             )
         return self.inverterData
 
@@ -450,7 +452,7 @@ class PyRenac:
             if resp.status == 200:
                 response = await resp.json(content_type=None)
                 if "data" in response:
-                    _LOGGER.debug(response)
+                    _LOGGER.warning(response)
                     data = response["data"]["list"]
                     return [item["INV_SN"] for item in data]
             else:
@@ -482,7 +484,7 @@ class PyRenac:
                 if resp.status == 200:
                     response = await resp.json(content_type=None)
                     if "data" in response:
-                        _LOGGER.debug(response)
+                        _LOGGER.warning(response)
                         data = response["data"]["list"]
                         if len(data) > 0:
                             self.inverterData = RenacInverterData(
@@ -491,6 +493,7 @@ class PyRenac:
                                 name=data[0].get("EQU_POSITION"),
                                 registration_time=data[0].get("REG_TIME"),
                                 equipment_serial=data[0].get("INV_SN"),
+                                model=data[0].get("MODEL_NAME"),
                             )
                     else:
                         _LOGGER.info("Null results. assuming a new Token is required")

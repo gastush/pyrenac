@@ -261,7 +261,7 @@ class PyRenac:
                     self.token = None
             else:
                 _LOGGER.error("Failed to read sensor %s", resp.status)
-                raise ("Failed to read sensor " + str(resp.status))
+                raise RuntimeError("Failed to read sensor " + str(resp.status))
         if context is not None:
             return data.get(context)
         return data
@@ -301,7 +301,7 @@ class PyRenac:
                 self.token = None
         else:
             _LOGGER.error("Failed to read sensor %s", resp.status)
-            raise ("Failed to read sensor " + str(resp.status))
+            raise RuntimeError("Failed to read sensor " + str(resp.status))
 
         if context is not None:
             return data.get(context)
@@ -312,7 +312,7 @@ class PyRenac:
         inverterType = None
         try:
             value = self.fetch_field_value(
-                data, "BATTERY_CAPACITY"
+                data, "BATTERY1_CAPACITY"
             )  # HYBRID inverter have a battery.
             if value is None:
                 inverterType = InverterType.ONGRID
@@ -360,7 +360,7 @@ class PyRenac:
                         _LOGGER.info("Null results. assuming a new Token is required")
                         self.token = None
                 else:
-                    raise ("Failed to read sensor " + str(resp.status))
+                    raise RuntimeError("Failed to read sensor " + str(resp.status))
             _LOGGER.warning("Got station_id %s", self.station_id)
         return self.station_id
 
@@ -381,7 +381,7 @@ class PyRenac:
                     _LOGGER.info("Null results. assuming a new Token is required")
                     self.token = None
             else:
-                raise ("Failed to read sensor " + str(resp.status))
+                raise RuntimeError("Failed to read sensor " + str(resp.status))
             _LOGGER.warning("Got station_id %s", self.station_id)
         return self.station_id
 
@@ -410,7 +410,7 @@ class PyRenac:
                     _LOGGER.info("Null results. assuming a new Token is required")
                     self.token = None
             else:
-                raise ("Failed to read sensor " + str(resp.status))
+                raise RuntimeError("Failed to read sensor " + str(resp.status))
         return data
 
     def get_inverter_data(self) -> RenacInverterData:
@@ -438,7 +438,7 @@ class PyRenac:
             "rows": 10,
             "equ_sn": "",
         }
-        headers = {"Token": self.token}
+        headers = self.build_header()
         timeout = aiohttp.ClientTimeout(total=30)
         async with (
             aiohttp.ClientSession() as session,
@@ -456,7 +456,7 @@ class PyRenac:
                     data = response["data"]["list"]
                     return [item["INV_SN"] for item in data]
             else:
-                raise ("Failed to read sensor " + str(resp.status))
+                raise RuntimeError("Failed to read sensor " + str(resp.status))
 
     async def async_get_inverter_data(self) -> RenacInverterData:
         """Get details about the inverter itslef."""
@@ -499,7 +499,7 @@ class PyRenac:
                         _LOGGER.info("Null results. assuming a new Token is required")
                         self.token = None
                 else:
-                    raise ("Failed to read sensor " + str(resp.status))
+                    raise RuntimeError("Failed to read sensor " + str(resp.status))
         return self.inverterData
 
 
